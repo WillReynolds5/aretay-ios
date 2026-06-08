@@ -52,3 +52,4 @@ fastlane/test_output
 # Env / secrets
 *.env
 .env.local
+Config/Secrets.xcconfig

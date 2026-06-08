@@ -12,10 +12,14 @@ final class AretayUITests: XCTestCase {
     }
 
     @MainActor
-    func testAppLaunches() throws {
+    func testSignInScreenAppears() throws {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.navigationBars["Aretay"].waitForExistence(timeout: 5))
+        // App starts on the sign-in screen until a session exists.
+        XCTAssertTrue(
+            app.buttons["signInWithAppleButton"].waitForExistence(timeout: 5),
+            "Sign in with Apple button should be visible on launch"
+        )
     }
 
     @MainActor
