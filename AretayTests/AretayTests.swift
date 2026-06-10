@@ -3,6 +3,7 @@
 //  AretayTests
 //
 
+import Foundation
 import Testing
 @testable import Aretay
 

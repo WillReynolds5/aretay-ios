@@ -9,14 +9,17 @@ import Foundation
 import Observation
 import AuthenticationServices
 import CryptoKit
+import OSLog
 import Supabase
+
+private let authLog = Logger(subsystem: "com.willreynolds.aretay", category: "Auth")
 
 @MainActor
 @Observable
 final class AuthManager {
 
     enum State: Equatable {
-        case unknown            // initial — waiting for auth stream
+        case unknown
         case signedOut
         case signedIn(User)
     }
@@ -24,42 +27,45 @@ final class AuthManager {
     private(set) var state: State = .unknown
     var errorMessage: String?
 
+    /// Access token for authenticated API requests. Nil when signed out.
+    private(set) var accessToken: String?
+
     /// Stable id for SwiftUI `.task(id:)` — avoids reload loops from token refresh events.
     var sessionLoadID: String? {
         switch state {
         case .unknown, .signedOut:
             return nil
         case .signedIn(let user):
-            return isDebugSession ? "debug" : user.id.uuidString
+            return user.id.uuidString
         }
+    }
+
+    /// Supabase auth user id. Nil when signed out.
+    var userID: UUID? {
+        guard case .signedIn(let user) = state else { return nil }
+        return user.id
+    }
+
+    /// First name from Sign in with Apple metadata, when available.
+    var displayName: String? {
+        guard case .signedIn(let user) = state else { return nil }
+        for key in ["full_name", "name", "given_name"] {
+            if let value = Self.metadataString(user.userMetadata[key]), !value.isEmpty {
+                return Self.formattedFirstName(from: value)
+            }
+        }
+        return nil
     }
 
     private let client: SupabaseClient
     private var currentNonce: String?
-    private var isDebugSession = false
 
     init(client: SupabaseClient = SupabaseManager.shared) {
         self.client = client
-        Task { [weak self] in
-            await self?.bootstrapAuth()
-        }
+        Task { await observeAuthChanges() }
     }
 
     // MARK: - Auth state observation
-
-    private func bootstrapAuth() async {
-        // Never block UI on client.auth.session — it can hang on simulator.
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            self?.fallbackFromUnknown()
-        }
-        await observeAuthChanges()
-    }
-
-    private func fallbackFromUnknown() {
-        guard case .unknown = state, !isDebugSession else { return }
-        state = .signedOut
-    }
 
     private func observeAuthChanges() async {
         for await (event, session) in client.auth.authStateChanges {
@@ -68,7 +74,7 @@ final class AuthManager {
     }
 
     private func apply(event: AuthChangeEvent, session: Session?) {
-        if isDebugSession { return }
+        accessToken = session?.accessToken
 
         switch event {
         case .signedOut, .userDeleted:
@@ -93,14 +99,17 @@ final class AuthManager {
 
     func handleAppleCompletion(_ result: Result<ASAuthorization, Error>) async {
         errorMessage = nil
-        isDebugSession = false
         switch result {
         case .success(let authorization):
             await exchangeWithSupabase(authorization)
-        case .failure(let error as ASAuthorizationError) where error.code == .canceled:
-            return
         case .failure(let error):
-            errorMessage = error.localizedDescription
+            logAppleFailure(error)
+            if let authError = error as? ASAuthorizationError,
+               authError.code == .canceled,
+               !Self.isLikelyAccountFailure(error) {
+                return
+            }
+            errorMessage = Self.userFacingMessage(for: error)
         }
     }
 
@@ -129,32 +138,51 @@ final class AuthManager {
         }
     }
 
-    // MARK: - Debug bypass (DEBUG builds only)
-
-#if DEBUG
-    func debugBypassAuth() {
-        errorMessage = nil
-        isDebugSession = true
-        state = .signedIn(User(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
-            appMetadata: [:],
-            userMetadata: [:],
-            aud: "authenticated",
-            createdAt: Date(),
-            updatedAt: Date()
-        ))
+    private func logAppleFailure(_ error: Error) {
+        let nsError = error as NSError
+        authLog.error("Sign in with Apple failed: \(nsError.domain, privacy: .public) \(nsError.code) \(error.localizedDescription, privacy: .public)")
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            authLog.error("Underlying: \(underlying.domain, privacy: .public) \(underlying.code) \(underlying.localizedDescription, privacy: .public)")
+        }
     }
-#endif
+
+    private static func userFacingMessage(for error: Error) -> String {
+        if isLikelyAccountFailure(error) {
+            return "Sign in with Apple isn't configured for this build. In Xcode, open the Aretay target → Signing & Capabilities → add Sign in with Apple, then clean build and reinstall on your device."
+        }
+
+        if let authError = error as? ASAuthorizationError, authError.code == .unknown {
+            return "Sign in with Apple failed. Run on a physical iPhone (not the simulator), stay signed into iCloud in Settings, and use your real Apple ID."
+        }
+
+        return error.localizedDescription
+    }
+
+    private static func isLikelyAccountFailure(_ error: Error) -> Bool {
+        var current: NSError? = error as NSError
+        while let nsError = current {
+            if nsError.domain == "AKAuthenticationError" {
+                switch nsError.code {
+                case -7003, -7022, -7026:
+                    return true
+                default:
+                    break
+                }
+            }
+            current = nsError.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
+    }
 
     // MARK: - Sign out
 
     func signOut() async {
-        isDebugSession = false
         do {
             try await client.auth.signOut()
         } catch {
             errorMessage = error.localizedDescription
         }
+        accessToken = nil
         state = .signedOut
     }
 
@@ -174,5 +202,14 @@ final class AuthManager {
         SHA256.hash(data: Data(input.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
+    }
+
+    private static func metadataString(_ value: AnyJSON?) -> String? {
+        guard let value, case .string(let string) = value else { return nil }
+        return string
+    }
+
+    private static func formattedFirstName(from fullName: String) -> String {
+        fullName.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? fullName
     }
 }

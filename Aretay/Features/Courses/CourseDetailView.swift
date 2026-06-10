@@ -8,28 +8,79 @@ import SwiftUI
 struct CourseDetailView: View {
     let course: Course
 
+    @Environment(AuthManager.self) private var auth
+
+    @State private var enrollment: Enrollment?
+    @State private var dueCount = 0
+    @State private var isStudying = false
+
     var body: some View {
         List {
-            if let description = course.description, !description.isEmpty {
-                Section("About") {
-                    Text(description)
-                        .foregroundStyle(.secondary)
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let subtitle = course.curriculum?.subtitle {
+                        Text(subtitle)
+                            .font(.headline)
+                    }
+                    if let description = course.description ?? course.curriculum?.description,
+                       !description.isEmpty {
+                        Text(description)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+
+                Button {
+                    isStudying = true
+                } label: {
+                    HStack {
+                        Image(systemName: "play.fill")
+                        Text(startButtonTitle)
+                            .font(.headline)
+                        Spacer()
+                        if dueCount > 0 {
+                            Text("\(dueCount) due")
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(.orange.opacity(0.2), in: Capsule())
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
+                .accessibilityIdentifier("startSession")
+            }
+
+            if let enrollment, let curriculum = course.curriculum, curriculum.segmentCount > 0 {
+                Section("Progress") {
+                    let total = curriculum.segmentCount + 1 // + intro
+                    ProgressView(value: Double(enrollment.segmentsCompleted), total: Double(total)) {
+                        Text("\(enrollment.segmentsCompleted) of \(total) videos watched")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
                 }
             }
 
-            Section("Lessons") {
-                if let videos = course.curriculum?.videos, !videos.isEmpty {
-                    ForEach(videos) { video in
+            if let outline = course.curriculum?.outline, !outline.isEmpty {
+                Section("What you'll learn") {
+                    ForEach(outline, id: \.level1Unit) { unit in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(video.title)
+                            Text(unit.level1Unit)
                                 .font(.headline)
-                            Text("\(video.date) · \(video.era)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            if let summary = unit.summary {
+                                Text(summary)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         .padding(.vertical, 2)
                     }
-                } else {
+                }
+            } else if course.curriculum == nil {
+                Section {
                     ContentUnavailableView(
                         "No lessons yet",
                         systemImage: "film",
@@ -40,37 +91,27 @@ struct CourseDetailView: View {
         }
         .navigationTitle(course.title)
         .navigationBarTitleDisplayMode(.large)
+        .fullScreenCover(isPresented: $isStudying, onDismiss: {
+            Task { await loadStudyState() }
+        }) {
+            SessionView(course: course)
+        }
+        .task(id: auth.sessionLoadID) {
+            await loadStudyState()
+        }
     }
-}
 
-#Preview {
-    NavigationStack {
-        CourseDetailView(course: Course(
-            id: UUID(),
-            ownerId: UUID(),
-            title: "Ancient Rome",
-            description: "A short survey of the Roman Republic.",
-            coverImageUrl: nil,
-            visibility: .public,
-            curriculum: Curriculum(
-                title: "Ancient Rome",
-                videos: [
-                    CurriculumVideo(
-                        id: 1,
-                        title: "The Founding Myth",
-                        date: "753 BC",
-                        era: "Kingdom",
-                        prompt: "",
-                        narration: "",
-                        question: CurriculumQuestion(
-                            text: "Who founded Rome?",
-                            options: ["Romulus", "Remus", "Aeneas", "Tarquin"],
-                            answer: "Romulus"
-                        )
-                    ),
-                ]
-            ),
-            createdAt: .now
-        ))
+    private var startButtonTitle: String {
+        if let enrollment, enrollment.segmentsCompleted > 0 {
+            return "Continue learning"
+        }
+        return "Start learning"
+    }
+
+    private func loadStudyState() async {
+        guard let token = auth.accessToken else { return }
+        enrollment = try? await StudyAPI.fetchEnrollment(courseId: course.id, accessToken: token)
+        let states = (try? await StudyAPI.fetchCardStates(courseId: course.id, accessToken: token)) ?? []
+        dueCount = states.filter { $0.due <= .now }.count
     }
 }

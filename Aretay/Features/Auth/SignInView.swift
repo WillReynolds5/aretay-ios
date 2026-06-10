@@ -43,14 +43,6 @@ struct SignInView: View {
                         .foregroundStyle(.red)
                         .multilineTextAlignment(.center)
                 }
-
-#if DEBUG
-                Button("Skip Sign In (Debug)") {
-                    auth.debugBypassAuth()
-                }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-#endif
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 48)

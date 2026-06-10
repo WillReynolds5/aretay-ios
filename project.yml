@@ -51,9 +51,10 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        # Custom keys read by SupabaseConfig — values come from Secrets.xcconfig
+        # Custom keys read by SupabaseConfig/MediaConfig — values come from Secrets.xcconfig
         SUPABASE_URL: "$(SUPABASE_URL)"
         SUPABASE_ANON_KEY: "$(SUPABASE_ANON_KEY)"
+        R2_PUBLIC_BASE_URL: "$(R2_PUBLIC_BASE_URL)"
     dependencies:
       - package: Supabase
         product: Supabase
@@ -61,6 +62,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.willreynolds.aretay
         PRODUCT_NAME: Aretay
+        DEVELOPMENT_TEAM: R8GZ944C2L
+        CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: NO
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: "0.1.0"
@@ -79,6 +82,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.willreynolds.aretay.tests
+        DEVELOPMENT_TEAM: R8GZ944C2L
+        CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
 
   AretayUITests:
@@ -91,6 +96,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.willreynolds.aretay.uitests
+        DEVELOPMENT_TEAM: R8GZ944C2L
+        CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
 
 schemes:

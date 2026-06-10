@@ -27,8 +27,19 @@ enum SupabaseConfig {
 }
 
 enum SupabaseManager {
+    private static let urlSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 30
+        return URLSession(configuration: config)
+    }()
+
     static let shared: SupabaseClient = SupabaseClient(
         supabaseURL: SupabaseConfig.url,
-        supabaseKey: SupabaseConfig.anonKey
+        supabaseKey: SupabaseConfig.anonKey,
+        options: SupabaseClientOptions(
+            auth: .init(emitLocalSessionAsInitialSession: true),
+            global: .init(session: urlSession)
+        )
     )
 }
