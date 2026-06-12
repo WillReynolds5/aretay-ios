@@ -4,11 +4,18 @@
 //
 //  Builds and runs one study session for a course:
 //
-//    1. Due reviews first (cards whose FSRS due ≤ now), capped, oldest first.
-//    2. New content: the next `new_segments_per_session` segments past the
-//       enrollment cursor — each segment video followed by its questions.
+//    1. Due reviews first (cards whose FSRS due ≤ now), oldest first.
+//    2. New content: every segment past the enrollment cursor — each
+//       segment video followed by its questions.
 //    3. Due reviews are interleaved around the new-segment blocks so a
 //       session feels like review → video → questions → review → …
+//
+//  A black "LEVEL N" interstitial is inserted before the first new segment
+//  of each lesson, so new content reads intro → LEVEL 1 → videos → LEVEL 2 → …
+//
+//  Sessions are currently UNCAPPED (no review limit, no per-session segment
+//  limit) — an engagement experiment to see how far people go in one sitting.
+//  The enrollment's `new_segments_per_session` knob is ignored for now.
 //
 //  Answers run through the binary FSRS scheduler; wrong answers requeue at
 //  the end of the session. Every answer is persisted incrementally (card
@@ -21,8 +28,6 @@ import Observation
 @MainActor
 @Observable
 final class SessionEngine {
-    static let maxReviewsPerSession = 20
-
     private(set) var queue: [SessionItem] = []
     private(set) var currentIndex = 0
     private(set) var summary = SessionSummary()
@@ -92,10 +97,10 @@ final class SessionEngine {
 
         // Linear content walk: intro, then every lesson segment in order.
         var segments: [SegmentItem] = []
-        var contentOrder: [(key: String, title: String, script: String, questions: [(key: String, question: CurriculumQuestion)])] = []
+        var contentOrder: [(key: String, title: String, script: String, lessonOrder: Int?, questions: [(key: String, question: CurriculumQuestion)])] = []
 
         if let intro = curriculum.intro {
-            contentOrder.append((SegmentKey.intro, "Introduction", intro.script, []))
+            contentOrder.append((SegmentKey.intro, "Introduction", intro.script, nil, []))
         }
         for lesson in curriculum.orderedLessons {
             for segment in lesson.segments.sorted(by: { $0.segmentNumber < $1.segmentNumber }) {
@@ -107,15 +112,19 @@ final class SessionEngine {
                         questionIndex: index
                     ), question)
                 }
-                contentOrder.append((key, lesson.unitTitle, segment.script, questions))
+                contentOrder.append((key, lesson.unitTitle, segment.script, lesson.order, questions))
             }
         }
 
         var questionByKey: [String: QuestionItem] = [:]
         var questionKeyByCardId: [UUID: String] = [:]
+        var lessonOrderByKey: [String: Int] = [:]
 
         for (index, content) in contentOrder.enumerated() {
             segmentOrder[content.key] = index
+            if let lessonOrder = content.lessonOrder {
+                lessonOrderByKey[content.key] = lessonOrder
+            }
             let card = cardsByKey[content.key]
             segments.append(SegmentItem(
                 id: UUID(),
@@ -157,7 +166,6 @@ final class SessionEngine {
         let dueReviews: [QuestionItem] = stateByCardId.values
             .filter { $0.due <= now }
             .sorted { $0.due < $1.due }
-            .prefix(Self.maxReviewsPerSession)
             .compactMap { state in
                 questionKeyByCardId[state.cardId].flatMap { questionByKey[$0] }
             }
@@ -165,12 +173,21 @@ final class SessionEngine {
         // 2. New content: next segments past the cursor that actually have video.
         let cursorIndex = enrollment.cursorSegmentKey.flatMap { segmentOrder[$0] } ?? -1
         var newBlocks: [[SessionItem]] = []
+        let alreadyDue = Set(dueReviews.map(\.cardId))
+        var lastAnnouncedLevel: Int?
         for segment in segments.dropFirst(cursorIndex + 1) where segment.videoURL != nil {
-            guard newBlocks.count < enrollment.newSegmentsPerSession else { break }
-            let alreadyDue = Set(dueReviews.map(\.cardId))
             let freshQuestions = (questionsBySegmentKey[segment.segmentKey] ?? [])
                 .filter { !alreadyDue.contains($0.cardId) }
-            newBlocks.append([.segment(segment)] + freshQuestions.map { .question($0) })
+            var block: [SessionItem] = []
+            // Announce the level with a black interstitial whenever new
+            // content crosses into a lesson this session hasn't shown yet.
+            if let level = lessonOrderByKey[segment.segmentKey], level != lastAnnouncedLevel {
+                block.append(.transition(LevelTransitionItem(id: UUID(), levelNumber: level, title: segment.title)))
+                lastAnnouncedLevel = level
+            }
+            block.append(.segment(segment))
+            block.append(contentsOf: freshQuestions.map { .question($0) })
+            newBlocks.append(block)
         }
 
         // 3. Interleave: half the reviews up front, the rest spread between blocks.

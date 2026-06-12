@@ -1,14 +1,16 @@
 //
-//  HomeStats.swift
+//  LearnerStats.swift
 //  Aretay
 //
-//  Real spaced-repetition stats for the home screen, derived from the
-//  user's card states and review history.
+//  Real spaced-repetition stats for the learner, derived from the user's
+//  card states and review history. Shown on the courses home page and the
+//  profile sheet, and used to pick the launch destination (due reviews →
+//  straight into a session).
 //
 
 import Foundation
 
-struct HomeStats: Hashable, Sendable {
+struct LearnerStats: Hashable, Sendable {
     /// Consecutive days with at least one answer, counting back from today
     /// (yesterday keeps the streak alive until today's session happens).
     let streakDays: Int
@@ -28,7 +30,34 @@ struct HomeStats: Hashable, Sendable {
     /// All cards the scheduler is tracking for this user.
     let trackedCards: Int
 
-    static let empty = HomeStats(
+    /// Learner level (1-based) derived from cards in long-term memory.
+    var levelNumber: Int {
+        Self.levelIndex(for: knownCards) + 1
+    }
+
+    /// Display title for the current level (Explorer → … → Master).
+    var levelTitle: String {
+        Self.levels[Self.levelIndex(for: knownCards)].title
+    }
+
+    private static let levels: [(threshold: Int, title: String)] = [
+        (0, "Explorer"),
+        (10, "Learner"),
+        (30, "Scholar"),
+        (75, "Adept"),
+        (150, "Expert"),
+        (300, "Master"),
+    ]
+
+    private static func levelIndex(for knownCards: Int) -> Int {
+        var index = 0
+        for (i, level) in levels.enumerated() where knownCards >= level.threshold {
+            index = i
+        }
+        return index
+    }
+
+    static let empty = LearnerStats(
         streakDays: 0, dueNow: 0, dueByCourse: [:], seenByCourse: [:],
         retentionPercent: nil, knownCards: 0, trackedCards: 0
     )
@@ -38,7 +67,7 @@ struct HomeStats: Hashable, Sendable {
         logs: [StudyAPI.LogRow],
         now: Date = .now,
         calendar: Calendar = .current
-    ) -> HomeStats {
+    ) -> LearnerStats {
         // Streak
         let activeDays = Set(logs.map { calendar.startOfDay(for: $0.reviewedAt) })
         var streak = 0
@@ -76,7 +105,7 @@ struct HomeStats: Hashable, Sendable {
         }
         let known = states.filter { $0.state == .review }.count
 
-        return HomeStats(
+        return LearnerStats(
             streakDays: streak,
             dueNow: dueByCourse.values.reduce(0, +),
             dueByCourse: dueByCourse,

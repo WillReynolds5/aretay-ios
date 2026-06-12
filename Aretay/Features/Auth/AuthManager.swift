@@ -60,10 +60,44 @@ final class AuthManager {
     private let client: SupabaseClient
     private var currentNonce: String?
 
-    init(client: SupabaseClient = SupabaseManager.shared) {
+    init(client: SupabaseClient = SupabaseManager.shared, observeChanges: Bool = true) {
         self.client = client
-        Task { await observeAuthChanges() }
+        if observeChanges {
+            Task { await observeAuthChanges() }
+        }
     }
+
+#if DEBUG
+    /// Seeds signed-in preview state without touching Supabase.
+    func configureForPreview(
+        displayName: String = "Alex",
+        accessToken: String? = PreviewData.previewAccessToken
+    ) {
+        let now = Date()
+        let user = User(
+            id: PreviewData.userID,
+            appMetadata: [:],
+            userMetadata: ["given_name": .string(displayName)],
+            aud: "authenticated",
+            createdAt: now,
+            updatedAt: now
+        )
+        self.accessToken = accessToken
+        state = .signedIn(user)
+    }
+
+    static var preview: AuthManager {
+        let auth = AuthManager(client: SupabaseManager.shared, observeChanges: false)
+        auth.configureForPreview()
+        return auth
+    }
+
+    static var previewSignedInEmpty: AuthManager {
+        let auth = AuthManager(client: SupabaseManager.shared, observeChanges: false)
+        auth.configureForPreview(accessToken: nil)
+        return auth
+    }
+#endif
 
     // MARK: - Auth state observation
 

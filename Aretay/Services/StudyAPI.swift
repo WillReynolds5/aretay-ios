@@ -60,6 +60,19 @@ enum StudyAPI {
         return rows.first
     }
 
+    /// Every enrollment for the signed-in user (RLS-scoped), most recently
+    /// studied first — powers the "resume the course you were in" launch route.
+    static func fetchEnrollments(accessToken: String) async throws -> [Enrollment] {
+        try await get(
+            path: "rest/v1/course_enrollments",
+            query: [
+                URLQueryItem(name: "select", value: "*"),
+                URLQueryItem(name: "order", value: "last_studied_at.desc.nullslast"),
+            ],
+            accessToken: accessToken
+        )
+    }
+
     @discardableResult
     static func upsertEnrollment(_ enrollment: Enrollment, accessToken: String) async throws -> Enrollment {
         let rows: [Enrollment] = try await write(

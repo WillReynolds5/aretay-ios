@@ -60,25 +60,33 @@ struct SessionView: View {
                     .foregroundStyle(.white)
             }
 
-            VStack {
-                HStack(spacing: 12) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.headline)
-                            .foregroundStyle(.white)
-                            .padding(10)
-                            .background(.black.opacity(0.35), in: Circle())
-                    }
-                    .accessibilityIdentifier("closeSession")
+            VStack(spacing: 10) {
+                ZStack {
+                    // Which course this session belongs to. Will matter even
+                    // more once the default Review feed mixes courses.
+                    CourseBadge(title: course.title)
 
-                    if let engine, !engine.isFinished {
-                        ProgressView(value: engine.progress)
-                            .tint(.white)
+                    HStack {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .padding(10)
+                                .background(.black.opacity(0.35), in: Circle())
+                        }
+                        .accessibilityIdentifier("closeSession")
+                        Spacer()
                     }
                 }
                 .padding(.horizontal, 16)
+
+                if let engine, !engine.isFinished {
+                    ProgressView(value: engine.progress)
+                        .tint(.white)
+                        .padding(.horizontal, 16)
+                }
                 Spacer()
             }
         }
@@ -115,6 +123,26 @@ struct SessionView: View {
     }
 }
 
+// MARK: - Course badge
+
+/// Small top-center pill naming the course the current session is scoped to.
+private struct CourseBadge: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.black.opacity(0.35), in: Capsule())
+            .frame(maxWidth: 220)
+            .accessibilityIdentifier("sessionCourseBadge")
+    }
+}
+
 // MARK: - Vertical paging feed
 
 private struct SessionFeedView: View {
@@ -122,33 +150,68 @@ private struct SessionFeedView: View {
     let policy: SessionFeedPolicy
 
     @State private var scrolledID: UUID?
+    /// Cover used to fade through black around level transitions instead of
+    /// the usual scroll animation — page switches happen underneath it.
+    @State private var blackout: Double = 0
 
     var body: some View {
-        ScrollView(.vertical) {
-            LazyVStack(spacing: 0) {
-                ForEach(engine.queue) { item in
-                    SessionPageView(
-                        item: item,
-                        isActive: item.id == engine.currentItem?.id,
-                        engine: engine,
-                        policy: policy
-                    )
-                    .containerRelativeFrame([.horizontal, .vertical])
-                    .id(item.id)
+        ZStack {
+            ScrollView(.vertical) {
+                LazyVStack(spacing: 0) {
+                    ForEach(engine.queue) { item in
+                        SessionPageView(
+                            item: item,
+                            isActive: item.id == engine.currentItem?.id,
+                            engine: engine,
+                            policy: policy
+                        )
+                        .containerRelativeFrame([.horizontal, .vertical])
+                        .id(item.id)
+                    }
                 }
+                .scrollTargetLayout()
             }
-            .scrollTargetLayout()
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: $scrolledID)
+            .scrollDisabled(!policy.allowsManualSwipe)
+            .scrollIndicators(.hidden)
+            .ignoresSafeArea()
+
+            Color.black
+                .ignoresSafeArea()
+                .opacity(blackout)
+                .allowsHitTesting(false)
         }
-        .scrollTargetBehavior(.paging)
-        .scrollPosition(id: $scrolledID)
-        .scrollDisabled(!policy.allowsManualSwipe)
-        .scrollIndicators(.hidden)
-        .ignoresSafeArea()
         .onAppear { scrolledID = engine.currentItem?.id }
-        .onChange(of: engine.currentIndex) {
-            withAnimation(.spring(duration: 0.5)) {
+        .onChange(of: engine.currentIndex) { oldIndex, newIndex in
+            advancePage(from: item(at: oldIndex), to: item(at: newIndex))
+        }
+    }
+
+    private func item(at index: Int) -> SessionItem? {
+        engine.queue.indices.contains(index) ? engine.queue[index] : nil
+    }
+
+    private func advancePage(from: SessionItem?, to: SessionItem?) {
+        if to?.isTransition == true {
+            // Fade the finished video down to black, then switch pages under
+            // the cover — the interstitial underneath is pure black, so
+            // dropping the cover afterwards is invisible.
+            withAnimation(.easeInOut(duration: 0.45)) { blackout = 1 }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.5))
                 scrolledID = engine.currentItem?.id
+                try? await Task.sleep(for: .seconds(0.05))
+                blackout = 0
             }
+        } else if from?.isTransition == true {
+            // The interstitial already faded its letters out, so the screen
+            // is black: switch instantly and fade the video in from black.
+            blackout = 1
+            scrolledID = engine.currentItem?.id
+            withAnimation(.easeOut(duration: 0.8).delay(0.15)) { blackout = 0 }
+        } else {
+            withAnimation(.spring(duration: 0.5)) { scrolledID = engine.currentItem?.id }
         }
     }
 }
@@ -169,6 +232,10 @@ private struct SessionPageView: View {
             QuestionPageView(item: question, isActive: isActive, policy: policy) { chosen, durationMs in
                 engine.answerCurrentQuestion(chosen: chosen, durationMs: durationMs)
             } onAdvance: {
+                engine.advance()
+            }
+        case .transition(let transition):
+            LevelTransitionPageView(item: transition, isActive: isActive) {
                 engine.advance()
             }
         }
@@ -310,14 +377,13 @@ private struct QuestionPageView: View {
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
 
-                CaptionOverlayView(captions: item.captions, currentTimeMs: controller.currentTimeMs)
-                    .padding(.bottom, 16)
-
                 VStack(alignment: .leading, spacing: 14) {
                     Text(item.question)
-                        .font(.headline)
+                        .font(.title.bold())
                         .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 4, y: 1)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.bottom, 8)
 
                     ForEach(item.options, id: \.self) { option in
                         AnswerOptionButton(
@@ -335,7 +401,8 @@ private struct QuestionPageView: View {
                         }
                     }
                 }
-                .padding(20)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 24)
             }
         }
         .onChange(of: isActive, initial: true) { _, active in
@@ -399,7 +466,7 @@ private struct AnswerOptionButton: View {
         Button(action: action) {
             HStack {
                 Text(text)
-                    .font(.body.weight(.semibold))
+                    .font(.title3)
                     .multilineTextAlignment(.leading)
                 Spacer()
                 switch state {
@@ -411,25 +478,30 @@ private struct AnswerOptionButton: View {
                     EmptyView()
                 }
             }
-            .padding(.vertical, 14)
-            .padding(.horizontal, 16)
-            .background(background, in: RoundedRectangle(cornerRadius: 14))
+            .padding(.vertical, 18)
+            .padding(.horizontal, 18)
+            .background {
+                let shape = RoundedRectangle(cornerRadius: 16)
+                switch state {
+                case .idle, .dimmed:
+                    // Frosted dark row over the looping video.
+                    shape.fill(.ultraThinMaterial)
+                        .environment(\.colorScheme, .dark)
+                case .correct:
+                    shape.fill(Color.green.opacity(0.85))
+                case .wrong:
+                    shape.fill(Color.red.opacity(0.85))
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(.white.opacity(0.22), lineWidth: 1)
+            )
             .foregroundStyle(.white)
             .opacity(state == .dimmed ? 0.45 : 1)
             .scaleEffect(state == .correct || state == .wrong ? 1.03 : 1)
         }
         .buttonStyle(.plain)
-    }
-
-    private var background: Color {
-        switch state {
-        case .idle, .dimmed:
-            return .white.opacity(0.16)
-        case .correct:
-            return .green.opacity(0.85)
-        case .wrong:
-            return .red.opacity(0.85)
-        }
     }
 }
 

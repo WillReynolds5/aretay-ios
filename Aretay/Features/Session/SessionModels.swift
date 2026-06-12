@@ -47,15 +47,31 @@ struct QuestionItem: Identifiable, Hashable, Sendable {
     }
 }
 
+/// Black interstitial announcing the next level (lesson) before its first
+/// segment plays. Purely presentational — never touches cursor or FSRS state.
+struct LevelTransitionItem: Identifiable, Hashable, Sendable {
+    let id: UUID
+    let levelNumber: Int
+    let title: String
+}
+
 enum SessionItem: Identifiable, Hashable, Sendable {
     case segment(SegmentItem)
     case question(QuestionItem)
+    case transition(LevelTransitionItem)
 
     var id: UUID {
         switch self {
         case .segment(let item): return item.id
         case .question(let item): return item.id
+        case .transition(let item): return item.id
         }
+    }
+
+    /// Transitions advance by fading through black rather than scrolling.
+    var isTransition: Bool {
+        if case .transition = self { return true }
+        return false
     }
 }
 

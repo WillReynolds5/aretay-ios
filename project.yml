@@ -40,6 +40,10 @@ targets:
       properties:
         UILaunchScreen:
           UILaunchScreen: {}
+        UIAppFonts:
+          - Montserrat-Light.ttf
+          - Montserrat-Medium.ttf
+          - LibreCaslonText-Italic.ttf
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations~iphone:

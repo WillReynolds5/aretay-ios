@@ -1,5 +1,5 @@
 //
-//  HomeStatsTests.swift
+//  LearnerStatsTests.swift
 //  AretayTests
 //
 
@@ -7,7 +7,7 @@ import Foundation
 import Testing
 @testable import Aretay
 
-struct HomeStatsTests {
+struct LearnerStatsTests {
     private let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
@@ -33,7 +33,7 @@ struct HomeStatsTests {
     }
 
     @Test func streakCountsConsecutiveDaysIncludingToday() {
-        let stats = HomeStats.compute(
+        let stats = LearnerStats.compute(
             states: [],
             logs: [log(daysAgo: 0), log(daysAgo: 1), log(daysAgo: 2)],
             now: now,
@@ -43,7 +43,7 @@ struct HomeStatsTests {
     }
 
     @Test func streakSurvivesNoActivityYetToday() {
-        let stats = HomeStats.compute(
+        let stats = LearnerStats.compute(
             states: [],
             logs: [log(daysAgo: 1), log(daysAgo: 2)],
             now: now,
@@ -53,7 +53,7 @@ struct HomeStatsTests {
     }
 
     @Test func streakBreaksOnGap() {
-        let stats = HomeStats.compute(
+        let stats = LearnerStats.compute(
             states: [],
             logs: [log(daysAgo: 0), log(daysAgo: 2), log(daysAgo: 3)],
             now: now,
@@ -63,7 +63,7 @@ struct HomeStatsTests {
     }
 
     @Test func retentionOnlyCountsReviewStateAnswers() {
-        let stats = HomeStats.compute(
+        let stats = LearnerStats.compute(
             states: [],
             logs: [
                 log(daysAgo: 1, rating: 3, stateBefore: "review"),
@@ -84,7 +84,7 @@ struct HomeStatsTests {
     }
 
     @Test func retentionIsNilWithoutRealReviews() {
-        let stats = HomeStats.compute(
+        let stats = LearnerStats.compute(
             states: [],
             logs: [log(daysAgo: 0, stateBefore: "new")],
             now: now,
@@ -94,7 +94,7 @@ struct HomeStatsTests {
     }
 
     @Test func dueAndMemoryCountsComeFromStates() {
-        let stats = HomeStats.compute(
+        let stats = LearnerStats.compute(
             states: [
                 state(.review, dueDaysFromNow: -1),   // due + known
                 state(.review, dueDaysFromNow: 5),    // known, not due
@@ -112,7 +112,7 @@ struct HomeStatsTests {
     }
 
     @Test func emptyInputsProduceEmptyStats() {
-        let stats = HomeStats.compute(states: [], logs: [], now: now, calendar: calendar)
+        let stats = LearnerStats.compute(states: [], logs: [], now: now, calendar: calendar)
         #expect(stats == .empty)
     }
 }

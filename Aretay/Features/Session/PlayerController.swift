@@ -5,7 +5,8 @@
 //  MainActor AVPlayer wrapper for feed pages: publishes playback time (for
 //  the caption overlay), completion (to auto-advance the feed), and load
 //  failure (to fall back to the script card), and renders through a bare
-//  AVPlayerLayer — no system controls. Question clips can loop.
+//  AVPlayerLayer — no system controls. Question clips can loop; the first
+//  pass plays with audio, every repeat is muted.
 //
 
 import AVFoundation
@@ -48,6 +49,7 @@ final class PlayerController {
         currentTimeMs = 0
         loops = loop
         loadedURL = url
+        player.isMuted = false
 
         let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
@@ -81,6 +83,8 @@ final class PlayerController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 if self.loops {
+                    // The narration already played once — repeats are silent.
+                    self.player.isMuted = true
                     self.player.seek(to: .zero)
                     self.player.play()
                 } else {

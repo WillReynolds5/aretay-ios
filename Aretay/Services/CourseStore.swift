@@ -27,4 +27,18 @@ final class CourseStore {
             errorMessage = error.localizedDescription
         }
     }
+
+#if DEBUG
+    func configureForPreview(courses: [Course]) {
+        self.courses = courses
+        isLoading = false
+        errorMessage = nil
+    }
+
+    static var previewLoaded: CourseStore {
+        let store = CourseStore()
+        store.configureForPreview(courses: PreviewData.courses)
+        return store
+    }
+#endif
 }

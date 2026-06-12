@@ -25,7 +25,7 @@ struct RootView: View {
             SignInView()
                 .transition(.opacity)
         case .signedIn:
-            HomeView()
+            CoursesHomeView()
                 .transition(.opacity)
         }
     }

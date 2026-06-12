@@ -9,7 +9,7 @@ import Foundation
 
 enum CourseAPI {
     private static let courseColumns =
-        "id,owner_id,title,description,cover_image_url,visibility,curriculum,created_at"
+        "id,owner_id,title,description,cover_image_url,visibility,tags,curriculum,created_at"
 
     private static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
@@ -49,6 +49,7 @@ enum CourseAPI {
         components.queryItems = [
             URLQueryItem(name: "select", value: courseColumns),
             URLQueryItem(name: "deleted_at", value: "is.null"),
+            URLQueryItem(name: "is_live", value: "is.true"),
             URLQueryItem(name: "order", value: "created_at.desc"),
         ]
 

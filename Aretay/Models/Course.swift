@@ -12,6 +12,11 @@ struct Course: Codable, Identifiable, Hashable, Sendable {
     let description: String?
     let coverImageUrl: String?
     let visibility: Visibility
+    /// Taxonomy slugs generated alongside the curriculum (e.g. "history").
+    /// The canonical vocabulary lives in the admin (lib/tags.ts) — the app
+    /// treats these as opaque and builds its filter chips from whatever the
+    /// catalog actually carries.
+    let tags: [String]
     let curriculum: Curriculum?
     let createdAt: Date
 
@@ -28,6 +33,7 @@ struct Course: Codable, Identifiable, Hashable, Sendable {
         case description
         case coverImageUrl = "cover_image_url"
         case visibility
+        case tags
         case curriculum
         case createdAt = "created_at"
     }
@@ -39,6 +45,7 @@ struct Course: Codable, Identifiable, Hashable, Sendable {
         description: String?,
         coverImageUrl: String?,
         visibility: Visibility,
+        tags: [String] = [],
         curriculum: Curriculum?,
         createdAt: Date
     ) {
@@ -48,6 +55,7 @@ struct Course: Codable, Identifiable, Hashable, Sendable {
         self.description = description
         self.coverImageUrl = coverImageUrl
         self.visibility = visibility
+        self.tags = tags
         self.curriculum = curriculum
         self.createdAt = createdAt
     }
@@ -60,6 +68,7 @@ struct Course: Codable, Identifiable, Hashable, Sendable {
         description = try container.decodeIfPresent(String.self, forKey: .description)
         coverImageUrl = try container.decodeIfPresent(String.self, forKey: .coverImageUrl)
         visibility = try container.decode(Visibility.self, forKey: .visibility)
+        tags = (try? container.decodeIfPresent([String].self, forKey: .tags)) ?? []
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         // Best-effort: old prototype courses carry a different curriculum
         // shape — show them without lessons rather than failing the row.
