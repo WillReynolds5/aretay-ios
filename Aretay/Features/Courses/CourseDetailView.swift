@@ -109,7 +109,7 @@ struct CourseDetailView: View {
     }
 
     private func loadStudyState() async {
-        guard let token = auth.accessToken else { return }
+        guard let token = try? await auth.validAccessToken() else { return }
         enrollment = try? await StudyAPI.fetchEnrollment(courseId: course.id, accessToken: token)
         let states = (try? await StudyAPI.fetchCardStates(courseId: course.id, accessToken: token)) ?? []
         dueCount = states.filter { $0.due <= .now }.count

@@ -138,8 +138,10 @@ struct ExploreCoursesView: View {
             return
         }
         #endif
-        guard let token = auth.accessToken else { return }
-        await courseStore.loadCourses(accessToken: token)
+        guard let token = try? await auth.validAccessToken() else { return }
+        await courseStore.loadCourses(accessToken: token) {
+            try await auth.validAccessToken()
+        }
     }
 }
 

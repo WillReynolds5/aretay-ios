@@ -48,6 +48,14 @@ struct SignInView: View {
                                 .padding(.horizontal, 8)
                                 .shadow(color: Brand.shadow.opacity(0.8), radius: 4)
                         }
+
+                        // Privacy policy link — visible before the user creates an account.
+                        // Replace the URL with your deployed aretay-web domain.
+                        if let url = URL(string: "https://aretay.ai/privacy.html") {
+                            Link("Privacy Policy", destination: url)
+                                .font(.caption)
+                                .foregroundStyle(Brand.mark.opacity(0.65))
+                        }
                     }
                     .padding(.horizontal, 28)
                     .padding(.bottom, 56)

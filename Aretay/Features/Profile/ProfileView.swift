@@ -13,6 +13,9 @@ struct ProfileView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var stats = LearnerStats.empty
+    @State private var showDeleteConfirmation = false
+    @State private var isDeletingAccount = false
+    @State private var deleteError: String?
 
     var body: some View {
         NavigationStack {
@@ -52,6 +55,32 @@ struct ProfileView: View {
                     }
                     .accessibilityIdentifier("signOutButton")
                 }
+
+                if let url = URL(string: "https://aretay.ai/privacy.html") {
+                    Section {
+                        Link("Privacy Policy", destination: url)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section {
+                    if isDeletingAccount {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("Deleting account…")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Button("Delete Account", role: .destructive) {
+                            showDeleteConfirmation = true
+                        }
+                        .accessibilityIdentifier("deleteAccountButton")
+                    }
+                } footer: {
+                    Text("Permanently removes your account and all study data. Cannot be undone.")
+                        .font(.caption)
+                }
             }
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
@@ -67,7 +96,37 @@ struct ProfileView: View {
             .refreshable {
                 await reload()
             }
+            .confirmationDialog(
+                "Delete Account",
+                isPresented: $showDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Delete My Account and All Data", role: .destructive) {
+                    Task { await performDelete() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This permanently deletes your account, all course progress, and your entire review history. There is no undo.")
+            }
+            .alert("Couldn't Delete Account", isPresented: Binding(
+                get: { deleteError != nil },
+                set: { if !$0 { deleteError = nil } }
+            )) {
+                Button("OK") { deleteError = nil }
+            } message: {
+                Text(deleteError ?? "")
+            }
         }
+    }
+
+    private func performDelete() async {
+        isDeletingAccount = true
+        defer { isDeletingAccount = false }
+        if let error = await auth.deleteAccount() {
+            deleteError = error
+        }
+        // On success, auth.state becomes .signedOut and the app navigates
+        // back to SignInView automatically via RootView's state switch.
     }
 
     private func reload() async {
@@ -79,7 +138,7 @@ struct ProfileView: View {
             return
         }
         #endif
-        guard let token = auth.accessToken else { return }
+        guard let token = try? await auth.validAccessToken() else { return }
         async let states = StudyAPI.fetchStateRows(accessToken: token)
         async let logs = StudyAPI.fetchRecentLogs(accessToken: token)
         if let states = try? await states, let logs = try? await logs {

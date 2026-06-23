@@ -27,8 +27,20 @@ final class AuthManager {
     private(set) var state: State = .unknown
     var errorMessage: String?
 
-    /// Access token for authenticated API requests. Nil when signed out.
+    /// Last known access token (may be expired). Prefer ``validAccessToken()`` for API calls.
     private(set) var accessToken: String?
+
+    /// Returns a valid access token, refreshing the Supabase session when needed.
+    func validAccessToken() async throws -> String {
+#if DEBUG
+        if accessToken == PreviewData.previewAccessToken {
+            return PreviewData.previewAccessToken
+        }
+#endif
+        let session = try await client.auth.session
+        accessToken = session.accessToken
+        return session.accessToken
+    }
 
     /// Stable id for SwiftUI `.task(id:)` — avoids reload loops from token refresh events.
     var sessionLoadID: String? {
@@ -218,6 +230,45 @@ final class AuthManager {
         }
         accessToken = nil
         state = .signedOut
+    }
+
+    // MARK: - Account deletion
+
+    /// Calls the `delete-account` Edge Function (service-role delete),
+    /// then clears local auth state. Returns an error string on failure.
+    func deleteAccount() async -> String? {
+        let token: String
+        do {
+            token = try await validAccessToken()
+        } catch {
+            return "Not signed in."
+        }
+
+        let functionURL = SupabaseConfig.url
+            .appendingPathComponent("functions/v1/delete-account")
+
+        var request = URLRequest(url: functionURL, timeoutInterval: 20)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(SupabaseConfig.anonKey, forHTTPHeaderField: "apikey")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
+                let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+                authLog.error("delete-account: HTTP \(http.statusCode) — \(body, privacy: .public)")
+                return "Server error (\(http.statusCode)). Please try again or contact support."
+            }
+        } catch {
+            authLog.error("delete-account: request failed — \(error.localizedDescription, privacy: .public)")
+            return "Could not reach the server. Check your connection and try again."
+        }
+
+        // Clear local state regardless — the server record is gone.
+        accessToken = nil
+        state = .signedOut
+        return nil
     }
 
     // MARK: - Nonce helpers

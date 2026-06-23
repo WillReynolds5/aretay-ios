@@ -3,10 +3,9 @@
 //  Aretay
 //
 //  The app's single home page — no tabs. Inline header (profile avatar +
-//  greeting), a four-stat bar (Streak / Due / Retention / Level) with a
-//  long-term-memory card, a "Review Due Now" hero card, an "Explore Courses"
-//  section (filter chips + horizontal course cards), and a grouped
-//  "My Courses" list.
+//  greeting), a three-stat bar (Streak / Due / Retention), a "Review Due
+//  Now" hero card, an "Explore Courses" section (filter chips + horizontal
+//  course cards), and a grouped "My Courses" list.
 //
 //  Owns launch routing: on a fresh launch, anything due → full-screen-present
 //  the top-due review session immediately (TikTok-style "just start
@@ -90,8 +89,10 @@ struct CoursesHomeView: View {
             return
         }
         #endif
-        guard let token = auth.accessToken else { return }
-        await courseStore.loadCourses(accessToken: token)
+        guard let token = try? await auth.validAccessToken() else { return }
+        await courseStore.loadCourses(accessToken: token) {
+            try await auth.validAccessToken()
+        }
         async let states = StudyAPI.fetchStateRows(accessToken: token)
         async let logs = StudyAPI.fetchRecentLogs(accessToken: token)
         if let states = try? await states, let logs = try? await logs {
@@ -121,7 +122,7 @@ struct CoursesHomeView: View {
 
     /// Most recently studied course that's been started but not finished.
     private func courseInProgress() async -> Course? {
-        guard let token = auth.accessToken,
+        guard let token = try? await auth.validAccessToken(),
               let enrollments = try? await StudyAPI.fetchEnrollments(accessToken: token)
         else { return nil }
         for enrollment in enrollments {
@@ -327,69 +328,36 @@ private struct SectionHeader: View {
     }
 }
 
-// MARK: - Stats (Streak / Due / Retention / Level + memory progress)
+// MARK: - Stats (Streak / Due / Retention)
 
 private struct LearnerStatsBar: View {
     let stats: LearnerStats
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 0) {
-                StatColumn(
-                    icon: "flame.fill",
-                    label: "Streak",
-                    value: "\(stats.streakDays)",
-                    unit: stats.streakDays == 1 ? "day" : "days",
-                    tint: .orange
-                )
-                statDivider
-                StatColumn(
-                    icon: "tray.full.fill",
-                    label: "Due",
-                    value: "\(stats.dueNow)",
-                    unit: stats.dueNow == 1 ? "card" : "cards",
-                    tint: .blue
-                )
-                statDivider
-                StatColumn(
-                    icon: "target",
-                    label: "Retention",
-                    value: stats.retentionPercent.map { "\($0)%" } ?? "—",
-                    unit: stats.retentionPercent == nil ? "No data" : "30 days",
-                    tint: .green
-                )
-                statDivider
-                StatColumn(
-                    icon: "chart.bar.fill",
-                    label: "Level",
-                    value: "\(stats.levelNumber)",
-                    unit: stats.levelTitle,
-                    tint: .purple
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text(memoryCaption)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                HStack(spacing: 12) {
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(Color(.tertiarySystemFill))
-                            Capsule()
-                                .fill(Color.accentColor)
-                                .frame(width: geometry.size.width * memoryProgress)
-                        }
-                    }
-                    .frame(height: 8)
-
-                    Text("\(Int((memoryProgress * 100).rounded()))%")
-                        .font(.subheadline.weight(.semibold))
-                        .monospacedDigit()
-                }
-            }
+        HStack(spacing: 0) {
+            StatColumn(
+                icon: "flame.fill",
+                label: "Streak",
+                value: "\(stats.streakDays)",
+                unit: stats.streakDays == 1 ? "day" : "days",
+                tint: .orange
+            )
+            statDivider
+            StatColumn(
+                icon: "tray.full.fill",
+                label: "Due",
+                value: "\(stats.dueNow)",
+                unit: stats.dueNow == 1 ? "card" : "cards",
+                tint: .blue
+            )
+            statDivider
+            StatColumn(
+                icon: "target",
+                label: "Retention",
+                value: stats.retentionPercent.map { "\($0)%" } ?? "—",
+                unit: stats.retentionPercent == nil ? "No data" : "30 days",
+                tint: .green
+            )
         }
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground))
@@ -398,18 +366,6 @@ private struct LearnerStatsBar: View {
 
     private var statDivider: some View {
         Divider().frame(height: 44)
-    }
-
-    private var memoryProgress: Double {
-        guard stats.trackedCards > 0 else { return 0 }
-        return Double(stats.knownCards) / Double(stats.trackedCards)
-    }
-
-    private var memoryCaption: String {
-        guard stats.trackedCards > 0 else {
-            return "Answer questions to start building memory"
-        }
-        return "\(stats.knownCards) of \(stats.trackedCards) cards in long-term memory"
     }
 }
 

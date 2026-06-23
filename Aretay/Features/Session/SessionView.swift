@@ -76,6 +76,7 @@ struct SessionView: View {
                                 .padding(10)
                                 .background(.black.opacity(0.35), in: Circle())
                         }
+                        .accessibilityLabel("Close session")
                         .accessibilityIdentifier("closeSession")
                         Spacer()
                     }
@@ -88,7 +89,17 @@ struct SessionView: View {
                         .padding(.horizontal, 16)
                 }
                 Spacer()
+
+                // Transient save-failure toast — shown when a card state
+                // or review log fails to persist (e.g. network drop).
+                if let engine, let saveError = engine.persistenceError {
+                    SaveErrorToast(message: saveError)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .animation(.spring(duration: 0.3), value: engine?.persistenceError)
         }
         .statusBarHidden()
         .task { await load() }
@@ -96,7 +107,14 @@ struct SessionView: View {
 
     private func load() async {
         guard engine == nil else { return }
-        guard let token = auth.accessToken, let userId = auth.userID else {
+        guard let userId = auth.userID else {
+            loadError = "You need to be signed in."
+            return
+        }
+        let token: String
+        do {
+            token = try await auth.validAccessToken()
+        } catch {
             loadError = "You need to be signed in."
             return
         }
@@ -120,6 +138,37 @@ struct SessionView: View {
         } catch {
             loadError = error.localizedDescription
         }
+    }
+}
+
+// MARK: - Save-error toast
+
+/// Appears at the bottom of the session when a card state or review log
+/// fails to persist (network drop, etc.). Non-blocking — the session
+/// continues and the user's streak/progress may be partially saved.
+private struct SaveErrorToast: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.yellow)
+                .font(.footnote)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Progress may not have saved")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text("Check your connection")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Warning: progress may not have saved. Check your connection.")
     }
 }
 
